@@ -36,7 +36,14 @@ let scene,
     holder,
     ground,
     lastTime = 0,
-    lerpRate = 4;
+    lerpRate = 4,
+    cassettes = [],
+    listener = new THREE.AudioListener(),
+    sound = new THREE.Audio( listener ),
+    tracks = [],
+    currentTrack = 0,
+    timesSpawned = 0,
+    loader = ["cassete", "boombox", "audio1", "audio2", "audio3"];
 
 const init = () => {
     scene = new THREE.Scene();
@@ -47,36 +54,28 @@ const init = () => {
     camera = new THREE.OrthographicCamera( -cam_width, cam_width, cam_height, -cam_height, 0.001, 1000 );
     camera.position.set(25, 20, 30);
     camera.lookAt(new THREE.Vector3(0, 1.5, 0,));
+    camera.add( listener );
 
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize( window.innerWidth, window.innerHeight );
-    // renderer.shadowMap.enabled = true;
-    // renderer.shadowMap.type = THREE.BasicShadowMap;
-    // renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('container').appendChild(renderer.domElement);
 
-    const ground_geometry = new THREE.PlaneGeometry( 10, 10, 10 );
-    // const ground_material = new THREE.ShadowMaterial();
-    const ground_material = new THREE.MeshStandardMaterial( { emissive: 0xff0000, roughness: 0.8, metalness: 0.0 } );
-    ground_material.opacity = 1.0;
-    ground = new THREE.Mesh( ground_geometry, ground_material );
-    ground.receiveShadow = true;
-    // scene.add( ground );
-    ground.rotation.set(-Math.PI/2, 0, 0);
-
-    directionalLight = new THREE.DirectionalLight( 0xffffff, 1.0 );
-    directionalLight.position.set( 5, 5, 5 );
+    directionalLight = new THREE.DirectionalLight( 0xffefe0, 1.8 );
+    directionalLight.position.set( 30, 35, 50 );
     directionalLight.lookAt( new THREE.Vector3(0, 0, 0) );
     scene.add( directionalLight );
 
-    loadObjects();
+    sound.setLoop( true );
+    sound.setVolume( 0.5 );
+
+    loadAssets();
 }
 
-const loadObjects = () => {
+const loadAssets = () => {
     const objLoader = new OBJLoader();
 
     new THREE.TextureLoader().load("./model/boombox.png", (tex) => {
-        const material = new THREE.MeshStandardMaterial( { emissive: 0x443f3a, map: tex, roughness: 0.8, metalness: 0.0 } );
+        const material = new THREE.MeshStandardMaterial( { map: tex, roughness: 1.0, metalness: 0.2 } );
 
         // Load boombox
         objLoader.load('./model/boombox.obj', (boomboxObject) => {
@@ -84,23 +83,21 @@ const loadObjects = () => {
             boombox.children.forEach((child) => {
                 child.material = material;
             });
-            // boombox.castShadow = true;
             scene.add(boombox);
-            // console.log(boombox);
 
             // Boombox outline
             const boomboxOutline = boombox.children[0].clone();
-            // boomboxOutline.castShadow = true;
             boombox.add(boomboxOutline);
             boomboxOutline.material = new THREE.MeshBasicMaterial( { color: 0x000000, side: THREE.BackSide } );
             boomboxOutline.scale.setScalar(1.008);
+            boomboxOutline.position.set(0, 0, -0.01);
 
             holder = boombox.children[1];
             holder.status = false;
-            boombox.children[1].position.set(0, 0.55, 0.6);
-            // boombox.children[1].rotation.set(Math.PI/6, 0, 0);
+            holder.position.set(0, 0.55, 0.6);
+            holder.loaded = null;
 
-            handleLoader();
+            updateLoader("boombox");
         });
 
         // Load cassette
@@ -109,21 +106,31 @@ const loadObjects = () => {
             cassette.children.forEach((child) => {
                 child.material = material;
             });
-            scene.add(cassette);
-            // console.log(cassette);
+            cassette.scale.setScalar(1.2);
 
             const cassetteOutline = cassette.children[0].clone();
             cassette.add(cassetteOutline);
             cassetteOutline.material = new THREE.MeshBasicMaterial( { color: 0x000000, side: THREE.BackSide } );
             cassetteOutline.scale.setScalar(1.07);
 
-            cassette.velocity = new THREE.Vector3(0, 0, 0);
-            cassette.gravity = new THREE.Vector3(0, -0.05, 0);
-            cassette.visible = false;
-            cassette.scale.setScalar(1.2);
-
-            handleLoader();
+            updateLoader("cassette");
         });
+    });
+
+    // load a sound and set it as the Audio object's buffer
+    new THREE.AudioLoader().load( 'audio/lildab.mp3', function( buffer ) {
+        tracks[0] = buffer;
+        updateLoader("audio1");
+    });
+
+    new THREE.AudioLoader().load( 'audio/numbaone.mp3', function( buffer ) {
+        tracks[1] = buffer;
+        updateLoader("audio2");
+    });
+
+    new THREE.AudioLoader().load( 'audio/shalmuta.mp3', function( buffer ) {
+        tracks[2] = buffer;
+        updateLoader("audio3");
     });
 }
 
@@ -141,28 +148,63 @@ const animate = function (time) {
         closeBoombox(deltaTime);
     }
     
-    // Update cassette
-    cassette.velocity.y += (cassette.gravity.y / (deltaTime+1));
-    cassette.position.add(cassette.velocity);
+    // Update cassettes
+    cassettes.forEach(eachCassette => {
+        if(eachCassette.position.distanceTo(holder.position) < 0.5 && !eachCassette.used && holder.loaded == null) {
+            loadCassette(eachCassette);
+            return;
+        }
+        eachCassette.velocity.y += (eachCassette.gravity.y / (deltaTime+1));
+        eachCassette.position.add(eachCassette.velocity);
+        eachCassette.rotation.set(
+            eachCassette.rotation.x + eachCassette.rotationalVelocity.x,
+            eachCassette.rotation.y + eachCassette.rotationalVelocity.y,
+            eachCassette.rotation.z + eachCassette.rotationalVelocity.z
+        );
 
-    // cassette.position.add(new THREE.Vector3(cassette.velocity.x, cassette.position.y + cassette.velocity.y, cassette.velocity.z));
+        if (eachCassette.position.y < -10) {
+            cassettes.splice(cassettes.indexOf(eachCassette), 1);
+            scene.remove(eachCassette);
+        }
+    });
 
-    // if(cassette.position.distanceTo(holder.position) < 0.01) {
-    //     cassette.velocity.setScalar(0)
-    //     cassette.gravity.setScalar(0);
-
-    //     console.log("SNAP CASSETTE");
-    // }
+    if(holder.loaded) {
+        boombox.scale.lerp(new THREE.Vector3(1 + Math.sin(time/120+1)/10, 1 + Math.sin(time/120)/10, 1), 0.2);
+        // console.log(boombox.scale);
+    }
 
     renderer.render(scene, camera);
 };
 
-function launchCassette() {
-    cassette.velocity.set(
-        (Math.random()-0.5)*0.1, // -0.05 to 0.05 
-        0.1, // 0.1
-        (Math.random()-0.5)*0.1// -0.05 to 0.05
+function launchCassette(c) {
+    boombox.scale.setScalar(1);
+    sound.stop();
+
+    c.velocity.set(
+        0, // -0.05 to 0.05 
+        0.2 + Math.random()*0.05, // 0.15 - 0.2
+        0.1 // 0.1
     );
+
+    c.rotationalVelocity.set(
+        Math.random()*0.1,
+        0,
+        0
+    );
+}
+
+function loadCassette(c) {
+    c.used = true;
+    holder.loaded = c;
+    holder.add(c);
+    c.position.set(0, 0.37, -0.1);
+    cassettes.splice(cassettes.indexOf(c), 1);
+    setHolderStatus(false);
+
+    // play audio
+    currentTrack = currentTrack+1 == tracks.length ? 0 : currentTrack+1;
+    sound.setBuffer( tracks[currentTrack] );
+    sound.play();
 }
 
 function openBoombox(deltaTime) {
@@ -180,40 +222,42 @@ function setHolderStatus(status) {
 }
 
 function spawnCassette() {
-    cassette.visible = true;
-    cassette.position.set(0, 10, 0.5);
-    cassette.velocity.set(0, -0.1, 0);
-}
+    const newCassette = cassette.clone();
+    newCassette.position.set(0, 10, 0.3);
+    newCassette.gravity = new THREE.Vector3(0, -0.1, 0);
+    newCassette.velocity = new THREE.Vector3(0, 0, 0);
+    newCassette.rotationalVelocity = new THREE.Euler(0, 0, 0);
+    
+    cassettes.push(newCassette);
+    scene.add(newCassette);
 
-function despawnCassette() {
-    launchCassette();
+    timesSpawned++;
 }
 
 // window.addEventListener('mousemove', event => {});
 
 window.addEventListener('mousedown', () => {
-    // boombox.rotation.x = -Math.PI/8;
-    // holder.rotation.x = Math.PI/6;
-
-    spawnCassette();
-    setHolderStatus(true);
-});
-
-window.addEventListener('mouseup', () => {
-    // boombox.rotation.x = 0;
-    // holder.rotation.x = 0;
-
-    despawnCassette();
-    setHolderStatus(false);
-});
-
-function handleLoader() {
-    if(cassette.velocity && boombox) {
-        console.log("READY");
-        requestAnimationFrame( animate );
-    } else {
-        console.log("NOT READY");
+    if(holder.loaded != null) {
+        scene.add(holder.loaded);
+        cassettes.push(holder.loaded);
+        launchCassette(holder.loaded);
+        holder.loaded = null;
+        spawnCassette();
+        setHolderStatus(true);
+        return;
     }
+
+    if(!timesSpawned) {
+        spawnCassette();
+        setHolderStatus(true);
+    }
+});
+
+function updateLoader(loadedElement) {
+    loader.splice(loader.indexOf(loadedElement), 1);
+    if (!loader.length) {
+        requestAnimationFrame( animate );
+    };
 }
 
 window.addEventListener('resize', () => {
