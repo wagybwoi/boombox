@@ -1,29 +1,4 @@
-// import {
-//     Scene,
-//     PerspectiveCamera,
-//     OrthographicCamera,
-//     WebGLRenderer,
-//     DirectionalLight,
-//     AmbientLight,
-//     BoxGeometry,
-//     PlaneGeometry,
-//     MeshBasicMaterial,
-//     MeshStandardMaterial,
-//     TextureLoader,
-//     Mesh,
-//     Vector3,
-//     Vector2,
-//     Euler,
-//     Group,
-//     Raycaster,
-//     Color,
-//     VideoTexture,
-//     LinearFilter,
-//     RGBFormat
-// } from 'three';
-
 import * as THREE from 'three';
-
 import { OBJLoader } from 'three-obj-mtl-loader';
 
 let scene,
@@ -36,7 +11,7 @@ let scene,
     holder,
     ground,
     lastTime = 0,
-    lerpRate = 4,
+    lerpRate = 0.01,
     cassettes = [],
     listener = new THREE.AudioListener(),
     sound = new THREE.Audio( listener ),
@@ -154,13 +129,9 @@ const animate = function (time) {
             loadCassette(eachCassette);
             return;
         }
-        eachCassette.velocity.y += (eachCassette.gravity.y / (deltaTime+1));
-        eachCassette.position.add(eachCassette.velocity);
-        eachCassette.rotation.set(
-            eachCassette.rotation.x + eachCassette.rotationalVelocity.x,
-            eachCassette.rotation.y + eachCassette.rotationalVelocity.y,
-            eachCassette.rotation.z + eachCassette.rotationalVelocity.z
-        );
+        eachCassette.velocity.y += (eachCassette.gravity.y * deltaTime);
+        eachCassette.position.add(eachCassette.velocity.clone().multiplyScalar(deltaTime));
+        eachCassette.rotation.x += (eachCassette.rotationalVelocity.x)*deltaTime;
 
         if (eachCassette.position.y < -10) {
             cassettes.splice(cassettes.indexOf(eachCassette), 1);
@@ -181,26 +152,27 @@ function launchCassette(c) {
     sound.stop();
 
     c.velocity.set(
-        0, // -0.05 to 0.05 
-        0.2 + Math.random()*0.05, // 0.15 - 0.2
-        0.1 // 0.1
+        0,
+        0.02 + Math.random()*0.003,
+        0.01
     );
 
     c.rotationalVelocity.set(
-        Math.random()*0.1,
+        Math.random()*0.01,
         0,
         0
     );
 }
 
 function loadCassette(c) {
+    document.getElementById("container").classList.add("pointy");
     c.used = true;
     holder.loaded = c;
     holder.add(c);
     c.position.set(0, 0.37, -0.1);
     cassettes.splice(cassettes.indexOf(c), 1);
     setHolderStatus(false);
-
+    
     // play audio
     currentTrack = currentTrack+1 == tracks.length ? 0 : currentTrack+1;
     sound.setBuffer( tracks[currentTrack] );
@@ -208,13 +180,13 @@ function loadCassette(c) {
 }
 
 function openBoombox(deltaTime) {
-    boombox.rotation.x = boombox.rotation.x + (lerpRate/deltaTime)*(-Math.PI/8 - boombox.rotation.x);
-    holder.rotation.x = holder.rotation.x + (lerpRate/deltaTime)*(Math.PI/6 - holder.rotation.x);
+    boombox.rotation.x = THREE.Math.lerp(boombox.rotation.x, -Math.PI/8, lerpRate*deltaTime);
+    holder.rotation.x = THREE.Math.lerp(holder.rotation.x, Math.PI/6, lerpRate*deltaTime);
 }
 
 function closeBoombox(deltaTime) {
-    boombox.rotation.x = boombox.rotation.x + (lerpRate/deltaTime)*(-boombox.rotation.x);
-    holder.rotation.x = holder.rotation.x + (lerpRate/deltaTime)*(-holder.rotation.x);
+    boombox.rotation.x = THREE.Math.lerp(boombox.rotation.x, 0, lerpRate*deltaTime);
+    holder.rotation.x = THREE.Math.lerp(holder.rotation.x, 0, lerpRate*deltaTime);
 }
 
 function setHolderStatus(status) {
@@ -222,9 +194,10 @@ function setHolderStatus(status) {
 }
 
 function spawnCassette() {
+    document.getElementById("container").classList.remove("pointy");
     const newCassette = cassette.clone();
     newCassette.position.set(0, 10, 0.3);
-    newCassette.gravity = new THREE.Vector3(0, -0.1, 0);
+    newCassette.gravity = new THREE.Vector3(0, -0.00003, 0);
     newCassette.velocity = new THREE.Vector3(0, 0, 0);
     newCassette.rotationalVelocity = new THREE.Euler(0, 0, 0);
     
